@@ -7,7 +7,7 @@ class Observer(ABC):
         """React to a change in the subject."""
 
 
-class Subject:
+class Subject(ABC):
     def __init__(self) -> None:
         self._observers: list[Observer] = []
 

@@ -3,9 +3,12 @@ from mutagen.easyid3 import EasyID3
 import pygame
 from tkinter.filedialog import *
 from tkinter import *
+import logging
 
 class MusicPlayerModel(Subject):
     def __init__(self):
+        super().__init__()
+
         self.current_song = ""
         self.play_list = []
         self.current_song_index = 0
@@ -16,11 +19,11 @@ class MusicPlayerModel(Subject):
         try:
             directory = askopenfilenames()
             for song_dir in directory:
-                print(song_dir)
+                logging.debug("Song directory being loaded: " + song_dir)
                 self.play_list.append(song_dir)
             self.notify_observers()
         except:
-            pass
+            logging.exception("Loading songs into playlist failed")
 
     def pause_or_unpause_song(self):
         try:
@@ -31,25 +34,23 @@ class MusicPlayerModel(Subject):
                 pygame.mixer.music.pause()
                 pausing = True
         except:
-            pass
+            logging.exception("Pausing/unpausing functionality failed")
 
     def song_data_for_text(self, key, item):
         try:
             song = EasyID3(item)
-            song_data = (str(key + 1) + ' : ' + song['title'][0] + ' - '
-                            + song['artist'][0])
+            song_data = f"{str(key + 1)} : {song['title'][0]} - {song['artist'][0]}"
             return song_data
         except:
-            pass
-    
+            logging.exception("Creation of song data for text failed")
+            
     def song_data_for_label(self):
         try:
             song = EasyID3(self.play_list[self.current_song])
-            song_data = "Now playing: Nr:" + str(self.play_list + 1) + " " + \
-                        str(song['title']) + " - " + str(song['artist'])
+            song_data = f"Now playing: Nr: {str(self.play_list + 1)} \ {str(song['title'])} - {str(song['artist'])}"
             return song_data
         except:
-            pass
+            logging.exception("Creation of song data for label failed")
     
     def load_and_play_song(self):
         try:
@@ -60,7 +61,7 @@ class MusicPlayerModel(Subject):
             self.is_paused = False
             self.notify_observers()
         except:
-            pass
+            logging.exception("Loading and playing song failed")
 
     def check_music(self):
         try:
@@ -68,19 +69,25 @@ class MusicPlayerModel(Subject):
                 if event.type == self.SONG_END:
                     self.next_song()
         except:
-            pass
+            logging.exception("Checking music failed")
+
+    def change_song(self, direction):
+        try: 
+            self.current_song_index = (self.current_song_index + direction) % len(self.play_list)
+            self.load_and_play_song()
+        except:
+            logging.exception("Changing song failed")
 
     def next_song(self):
         try: 
-            self.current_song_index = (self.current_song_index + 1) % len(self.play_list)
-            self.load_and_play_song()
+            self.change_song(1)
         except:
-            pass
+            logging.exception("Loading next song failed")
 
     def previous_song(self):
         try: 
-            self.current_song_index = (self.current_song_index - 1) % len(self.play_list)
-            self.load_and_play_song()
+            self.change_song(-1)
         except:
-            pass
+            logging.exception("Loading previous song failed")
+
 
