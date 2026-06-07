@@ -20,39 +20,40 @@ class MusicPlayerModel(Subject):
     def load_songs_into_playlist(self):
         try:
             directory = askopenfilenames()
+
             for song_dir in directory:
                 logging.debug("Song directory being loaded: " + song_dir)
                 self.play_list.append(song_dir)
             self.notify_observers()
-        except:
-            logging.exception("Loading songs into playlist failed")
+        except Exception as e:
+            logging.exception(f"Loading songs into playlist failed: {e}")
 
     def pause_or_unpause_song(self):
         try:
             if self.is_paused:
                 pygame.mixer.music.unpause()
                 pausing = False
-            elif not self.is_paused:
+            else:
                 pygame.mixer.music.pause()
                 pausing = True
-        except:
-            logging.exception("Pausing/unpausing functionality failed")
+        except Exception as e:
+            logging.exception(f"Pausing/unpausing functionality failed: {e}")
 
     def song_data_for_text(self, key, item):
         try:
             song = EasyID3(item)
             song_data = f"{str(key + 1)} : {song['title'][0]} - {song['artist'][0]}"
             return song_data
-        except:
-            logging.exception("Creation of song data for text failed")
+        except Exception as e:
+            logging.exception(f"Creation of song data for text failed: {e}")
             
     def song_data_for_label(self):
         try:
             song = EasyID3(self.play_list[self.current_song])
             song_data = f"Now playing: Nr: {str(self.play_list + 1)} \ {str(song['title'])} - {str(song['artist'])}"
             return song_data
-        except:
-            logging.exception("Creation of song data for label failed")
+        except Exception as e:
+            logging.exception(f"Creation of song data for label failed: {e}")
     
     def load_and_play_song(self):
         try:
@@ -62,34 +63,33 @@ class MusicPlayerModel(Subject):
             pygame.mixer.music.set_endevent(self.SONG_END)
             self.is_paused = False
             self.notify_observers()
-        except:
-            logging.exception("Loading and playing song failed")
+        except Exception as e:
+            logging.exception(f"Loading and playing song failed: {e}")
 
     def check_music(self):
         try:
             for event in pygame.event.get():
                 if event.type == self.SONG_END:
                     self.next_song()
-        except:
-            logging.exception("Checking music failed")
+        except Exception as e:
+            logging.exception(f"Checking music failed: {e}")
 
-    def change_song(self, direction):
+    def change_song(self, direction: int):
         try: 
             self.current_song_index = (self.current_song_index + direction) % len(self.play_list)
             self.load_and_play_song()
-        except:
-            logging.exception("Changing song failed")
+        except Exception as e:
+            logging.exception(f"Changing song failed: {e}")
 
     def next_song(self):
         try: 
             self.change_song(1)
-        except:
-            logging.exception("Loading next song failed")
+        except Exception as e:
+            logging.exception(f"Loading next song failed: {e}")
 
     def previous_song(self):
         try: 
             self.change_song(-1)
-        except:
-            logging.exception("Loading previous song failed")
-
+        except Exception as e:
+            logging.exception(f"Loading previous song failed: {e}")
 
