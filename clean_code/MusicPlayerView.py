@@ -1,8 +1,11 @@
-import MusicPlayerModel
+import logging
+import tkinter as tk
+from tkinter import filedialog
+
 from mutagen.easyid3 import EasyID3
 import pygame
-from tkinter.filedialog import *
-from tkinter import *
+
+from Observer import Subject
 
 class MusicPlayerView(Frame):
     BUTTON_BG_COLOR = "AntiqueWhite1"

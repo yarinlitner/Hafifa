@@ -18,6 +18,3 @@ class Subject(ABC):
     def add_observer(self, observer: Observer) -> None:
         self._observers.append(observer)
         observer.update()
-
-    def remove_observer(self, observer: Observer) -> None:
-        self._observers.remove(observer)

@@ -1,9 +1,11 @@
-from Observer import Subject, Observer
+import logging
+import tkinter as tk
+from tkinter import filedialog
+
 from mutagen.easyid3 import EasyID3
 import pygame
-from tkinter.filedialog import *
-from tkinter import *
-import logging
+
+from Observer import Subject
 
 class MusicPlayerModel(Subject):
     def __init__(self):
