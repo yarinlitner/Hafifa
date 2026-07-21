@@ -1,5 +1,5 @@
-from sqlalchemy import Boolean, Column, ForeignKey, Integer, String, Date
-from database import base
+from sqlalchemy import Column, ForeignKey, Integer, String, Date
+from database import Base
 
 class Pollutants(Base):
     __tablename__ = 'pollutants'
