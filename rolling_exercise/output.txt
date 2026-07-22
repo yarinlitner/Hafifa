@@ -1,0 +1,792 @@
+
+================================================================================
+FILE: calculate_aqi.py
+================================================================================
+
+def calculate_aqi(pm25, no2, co2):
+    pm25_breakpoints = [
+        (0, 12, 0, 50),
+        (12.1, 35.4, 51, 100),
+        (35.5, 55.4, 101, 150),
+        (55.5, 150.4, 151, 200),
+        (150.5, 250.4, 201, 300),
+        (250.5, 500.4, 301, 500),
+    ]
+
+    no2_breakpoints = [
+        (0, 53, 0, 50),
+        (54, 100, 51, 100),
+        (101, 360, 101, 150),
+        (361, 649, 151, 200),
+        (650, 1249, 201, 300),
+        (1250, 2049, 301, 500),
+    ]
+
+    co2_breakpoints = [
+        (0, 5, 0, 50),
+        (5.1, 15, 51, 100),
+        (15.1, 30, 101, 150),
+        (30.1, 60, 151, 200),
+        (60.1, 100, 201, 300),
+        (100.1, 200, 301, 500),
+    ]
+
+    def calculate_sub_index(value, breakpoints):
+        for lower, upper, aqi_lower, aqi_upper in breakpoints:
+            if lower <= value <= upper:
+                return aqi_lower + (value - lower) * (aqi_upper - aqi_lower) / (upper - lower)
+        return 500
+
+    pm25_aqi = calculate_sub_index(pm25, pm25_breakpoints)
+    no2_aqi = calculate_sub_index(no2, no2_breakpoints)
+    co2_aqi = calculate_sub_index(co2, co2_breakpoints)
+
+    overall_aqi = max(min(pm25_aqi, 500), 0, min(no2_aqi, 500), 0, min(co2_aqi, 500), 0)
+
+    aqi_thresholds = [
+        (50, "Good"),
+        (100, "Moderate"),
+        (150, "Unhealthy for Sensitive Groups"),
+        (200, "Unhealthy"),
+        (300, "Very Unhealthy"),
+        (500, "Hazardous")
+    ]
+
+    aqi_level = next(level for threshold, level in aqi_thresholds if overall_aqi <= threshold)
+
+    return overall_aqi, aqi_level
+
+================================================================================
+FILE: database.py
+================================================================================
+
+from sqlalchemy import create_engine
+from sqlalchemy.orm import sessionmaker
+from sqlalchemy.ext.declarative import declarative_base
+
+URL_DATABASE = 'postgresql://yarinlitner:password@localhost:5432/RollingExercise'
+
+engine = create_engine(URL_DATABASE)
+
+SessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=engine)
+
+Base = declarative_base()
+
+# database.py
+from typing import Annotated
+from fastapi import Depends
+from sqlalchemy import create_engine
+from sqlalchemy.ext.declarative import declarative_base
+from sqlalchemy.orm import Session, sessionmaker
+
+URL_DATABASE = 'postgresql://yarinlitner:password@localhost:5432/RollingExercise'
+
+engine = create_engine(URL_DATABASE)
+SessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=engine)
+Base = declarative_base()
+
+def get_db():
+    db = SessionLocal()
+    try:
+        yield db
+    finally:
+        db.close()
+
+db_dependency = Annotated[Session, Depends(get_db)]
+
+================================================================================
+FILE: main.py
+================================================================================
+
+from fastapi import FastAPI
+
+import models
+from database import engine
+from logger import logger
+from routers import air_quality, alerts, upload
+
+models.Base.metadata.create_all(bind=engine)
+
+app = FastAPI(title="Air Quality Index API")
+
+# Register routers
+app.include_router(upload.router)
+app.include_router(air_quality.router)
+app.include_router(alerts.router)
+
+logger.info("Air Quality API initialized successfully.")
+
+================================================================================
+FILE: models.py
+================================================================================
+
+from sqlalchemy import Column, ForeignKey, Integer, String, Date
+from database import Base
+
+class Pollutants(Base):
+    __tablename__ = 'pollutants'
+    
+    id = Column(Integer, primary_key=True, index=True)
+    date = Column(Date)
+    city = Column(String)
+    pm25 = Column(Integer)
+    no2 = Column(Integer)
+    co2 = Column(Integer)
+    aqi = Column(Integer)
+
+class Alerts(Base):
+    __tablename__ = 'alerts'
+
+    id = Column(Integer, primary_key=True, index=True)
+    pollutant_id = Column(Integer, ForeignKey("pollutants.id"))
+    date = Column(Date)
+    city = Column(String)
+    aqi = Column(Integer)
+
+================================================================================
+FILE: schemas.py
+================================================================================
+
+import datetime
+from typing import Optional
+from pydantic import BaseModel, ConfigDict
+
+class PollutantCreate(BaseModel):
+    """Schema for validating raw pollutant input data."""
+    date: datetime.date
+    city: str
+    pm25: int
+    no2: int
+    co2: int
+
+class PollutantsBase(PollutantCreate):
+    """Full database record schema for pollutants."""
+    id: int
+    aqi: int
+
+    model_config = ConfigDict(from_attributes=True)
+
+class AlertsBase(BaseModel):
+    """Full database record schema for alerts (AQI > 300)."""
+    id: int
+    pollutant_id: int
+    date: datetime.date
+    city: str
+    aqi: int
+
+    model_config = ConfigDict(from_attributes=True)
+
+class UploadResponse(BaseModel):
+    """Response returned after processing a CSV upload."""
+    message: str
+    inserted_rows: int
+    skipped_rows: list[int]
+
+class AQIHistoryResponse(BaseModel):
+    """Used for returning date + AQI entries for history queries."""
+    date: datetime.date
+    aqi: int
+
+    model_config = ConfigDict(from_attributes=True)
+
+
+class CityAQIResponse(BaseModel):
+    """Used for returning a city's current AQI value."""
+    city: str
+    aqi: int
+    date: Optional[datetime.date] = None
+
+    model_config = ConfigDict(from_attributes=True)
+
+
+class CityAQIAverageResponse(BaseModel):
+    """Used for returning average AQI calculations."""
+    city: str
+    average_aqi: float
+
+================================================================================
+FILE: routers/__init__.py
+================================================================================
+
+from . import air_quality, alerts, upload
+
+__all__ = ["air_quality", "alerts", "upload"]
+
+================================================================================
+FILE: routers/air_quality.py
+================================================================================
+
+import datetime
+from typing import Optional
+from fastapi import APIRouter, Depends, HTTPException
+from sqlalchemy import func
+from sqlalchemy.orm import Session
+
+import models
+import schemas
+from database import SessionLocal, get_db
+from logger import logger
+
+router = APIRouter(prefix="/air-quality", tags=["Air Quality"])
+
+@router.get("/date", response_model=list[schemas.PollutantsBase])
+def get_air_quality_by_date(
+    start_date: datetime.date,
+    end_date: datetime.date,
+    db: Session = Depends(get_db)
+):
+    if start_date > end_date:
+        raise HTTPException(status_code=400, detail="start_date cannot be after end_date")
+
+    logger.info(f"Querying air quality from {start_date} to {end_date}")
+
+    return db.query(models.Pollutants).filter(
+        models.Pollutants.date >= start_date,
+        models.Pollutants.date <= end_date
+    ).all()
+
+
+@router.get("/city", response_model=list[schemas.PollutantsBase])
+def get_air_quality_by_city(city: str, db: Session = Depends(get_db)):
+    logger.info(f"Querying air quality data for city: {city}")
+    records = db.query(models.Pollutants).filter(
+        models.Pollutants.city.ilike(city.strip())
+    ).all()
+
+    return records
+
+
+@router.get("/history", response_model=list[schemas.AQIHistoryResponse])
+def get_city_aqi_history(city: str, db: Session = Depends(get_db)):
+    logger.info(f"Querying AQI history for city: {city}")
+    history = (
+        db.query(models.Pollutants.date, models.Pollutants.aqi)
+        .filter(models.Pollutants.city.ilike(city.strip()))
+        .order_by(models.Pollutants.date.desc())
+        .all()
+    )
+
+    return [{"date": record.date, "aqi": record.aqi} for record in history]
+
+
+@router.get("/average", response_model=schemas.CityAQIAverageResponse)
+def get_city_aqi_average(city: str, db: Session = Depends(get_db)):
+    logger.info(f"Calculating AQI average for city: {city}")
+    result = (
+        db.query(func.avg(models.Pollutants.aqi))
+        .filter(models.Pollutants.city.ilike(city.strip()))
+        .scalar()
+    )
+
+    return {"city": city.strip(), "average_aqi": round(result, 2)}
+
+
+@router.get("/best-cities", response_model=list[schemas.CityAQIAverageResponse])
+def get_best_cities(db: Session = Depends(get_db)):
+    logger.info("Querying best cities by average AQI")
+    results = (
+        db.query(
+            models.Pollutants.city,
+            func.avg(models.Pollutants.aqi).label("avg_aqi")
+        )
+        .group_by(models.Pollutants.city)
+        .order_by("avg_aqi")
+        .limit(3)
+        .all()
+    )
+
+    return [{"city": city, "average_aqi": round(avg_aqi, 2)} for city, avg_aqi in results]
+
+================================================================================
+FILE: routers/alerts.py
+================================================================================
+
+import datetime
+from fastapi import APIRouter, Depends, HTTPException
+from sqlalchemy.orm import Session
+
+import models
+import schemas
+from database import SessionLocal, get_db
+from logger import logger
+
+router = APIRouter(prefix="/alerts", tags=["Alerts"])
+
+@router.get("", response_model=list[schemas.AlertsBase])
+def get_all_alerts(db: Session = Depends(get_db)):
+    logger.info("Retrieving all alerts")
+    return db.query(models.Alerts).all()
+
+
+@router.get("/date", response_model=list[schemas.AlertsBase])
+def get_alerts_by_date(date: datetime.date, db: Session = Depends(get_db)):
+    logger.info(f"Retrieving alerts for date: {date}")
+    return db.query(models.Alerts).filter(models.Alerts.date == date).all()
+
+
+@router.get("/city", response_model=list[schemas.AlertsBase])
+def get_alerts_by_city(city: str, db: Session = Depends(get_db)):
+    logger.info(f"Retrieving alerts for city: {city}")
+    alerts = db.query(models.Alerts).filter(
+        models.Alerts.city.ilike(city.strip())
+    ).all()
+    return alerts
+
+================================================================================
+FILE: routers/upload.py
+================================================================================
+
+import csv
+from fastapi import APIRouter, Depends, File, HTTPException, UploadFile
+from sqlalchemy.orm import Session
+
+import models
+import schemas
+from calculate_aqi import calculate_aqi
+from database import SessionLocal, get_db
+from logger import logger
+from tools import parse_csv_row
+
+router = APIRouter(tags=["Upload"])
+
+@router.post("/upload", response_model=schemas.UploadResponse)
+def upload(file: UploadFile = File(...), db: Session = Depends(get_db)):
+    if not file.filename or not file.filename.endswith(".csv"):
+        logger.warning(f"Failed upload attempt with invalid file: {file.filename}")
+        raise HTTPException(status_code=400, detail="Please upload a CSV file")
+
+    logger.info(f"Processing CSV file upload: {file.filename}")
+    content = file.file.read().decode("utf-8")
+    csv_reader = csv.reader(content.splitlines())
+
+    inserted_rows = 0
+    skipped_rows = []
+
+    for index, row in enumerate(csv_reader):
+        if index == 0:
+            continue
+
+        try:
+            date, city, pm25, no2, co2 = parse_csv_row(row)
+            aqi, _ = calculate_aqi(pm25, no2, co2)
+
+            pollutant = models.Pollutants(
+                date=date,
+                city=city,
+                pm25=pm25,
+                no2=no2,
+                co2=co2,
+                aqi=aqi,
+            )
+            db.add(pollutant)
+            db.flush()
+
+            if aqi > 300:
+                logger.warning(f"High AQI alert triggered for {city} on {date}: {aqi}")
+                alert = models.Alerts(
+                    pollutant_id=pollutant.id,
+                    date=date,
+                    city=city,
+                    aqi=aqi,
+                )
+                db.add(alert)
+
+            inserted_rows += 1
+        except ValueError as err:
+            logger.warning(f"Row {index + 1} skipped in file {file.filename}: {err}")
+            skipped_rows.append(index + 1)
+
+    db.commit()
+    logger.info(f"Upload complete. Inserted: {inserted_rows}, Skipped: {len(skipped_rows)}")
+
+    return {
+        "message": "Upload completed",
+        "inserted_rows": inserted_rows,
+        "skipped_rows": skipped_rows,
+    }
+
+================================================================================
+FILE: tools/__init__.py
+================================================================================
+
+from .parse_csv_row import parse_csv_row
+
+__all__ = ["parse_csv_row"]
+
+================================================================================
+FILE: tools/parse_csv_row.py
+================================================================================
+
+import math
+import datetime
+
+def parse_csv_row(row: list[str]) -> tuple[datetime.date, str, float, float, float]:
+    if len(row) != 5:
+        raise ValueError("Row must contain exactly 5 values")
+
+    date = datetime.date.fromisoformat(row[0].strip())
+    city = row[1].strip()
+    pm25 = float(row[2].strip())
+    no2 = float(row[3].strip())
+    co2 = float(row[4].strip())
+
+    if math.isnan(pm25) or math.isnan(no2) or math.isnan(co2):
+        raise ValueError("Pollutant values cannot be NaN")
+
+    return date, city, pm25, no2, co2
+
+================================================================================
+FILE: logger.py
+================================================================================
+
+import logging
+
+logging.basicConfig(
+    filename="app.log",
+    level=logging.INFO,
+    format="%(asctime)s [%(levelname)s] %(name)s: %(message)s",
+)
+
+logger = logging.getLogger("air_quality_api")
+
+================================================================================
+FILE: tests/.pytest_cache/.gitignore
+================================================================================
+
+# Created by pytest automatically.
+*
+
+================================================================================
+FILE: tests/.pytest_cache/CACHEDIR.TAG
+================================================================================
+
+Signature: 8a477f597d28d172789f06886806bc55
+# This file is a cache directory tag created by pytest.
+# For information about cache directory tags, see:
+#	https://bford.info/cachedir/spec.html
+
+================================================================================
+FILE: tests/.pytest_cache/README.md
+================================================================================
+
+# pytest cache directory #
+
+This directory contains data from the pytest's cache plugin,
+which provides the `--lf` and `--ff` options, as well as the `cache` fixture.
+
+**Do not** commit this to version control.
+
+See [the docs](https://docs.pytest.org/en/stable/how-to/cache.html) for more information.
+
+================================================================================
+FILE: tests/.pytest_cache/v/cache/lastfailed
+================================================================================
+
+{
+  "test_air_quality.py": true,
+  "test_alerts.py": true
+}
+
+================================================================================
+FILE: tests/.pytest_cache/v/cache/nodeids
+================================================================================
+
+[
+  "test_upload.py::test_upload_corrupted_rows_skipped",
+  "test_upload.py::test_upload_high_aqi_adds_alert",
+  "test_upload.py::test_upload_non_csv_rejected",
+  "test_upload.py::test_upload_valid_csv"
+]
+
+================================================================================
+FILE: tests/conftest.py
+================================================================================
+
+from unittest.mock import MagicMock
+import pytest
+from fastapi.testclient import TestClient
+
+from database import get_db
+from main import app
+
+@pytest.fixture
+def mock_db():
+    return MagicMock()
+
+
+@pytest.fixture
+def client(mock_db):
+    def _override_get_db():
+        try:
+            yield mock_db
+        finally:
+            pass
+
+    app.dependency_overrides[get_db] = _override_get_db
+    
+    with TestClient(app) as test_client:
+        yield test_client
+        
+    app.dependency_overrides.clear()
+
+================================================================================
+FILE: tests/test_air_quality.py
+================================================================================
+
+import datetime
+import logging
+from unittest.mock import MagicMock
+import models
+
+
+def test_get_air_quality_date_range(client, mock_db, caplog):
+    caplog.set_level(logging.INFO)
+    
+    mock_record = models.Pollutants(
+        id=1, date=datetime.date(2026, 1, 1), city="Haifa", pm25=10, no2=20, co2=30, aqi=50
+    )
+    mock_db.query.return_value.filter.return_value.all.return_value = [mock_record]
+
+    response = client.get("/air-quality/date?start_date=2026-01-01&end_date=2026-01-02")
+
+    assert response.status_code == 200
+    data = response.json()
+    assert len(data) == 1
+    assert data[0]["city"] == "Haifa"
+
+    # Assert log
+    assert "Querying air quality from 2026-01-01 to 2026-01-02" in caplog.text
+
+
+def test_get_air_quality_invalid_dates(client):
+    response = client.get("/air-quality/date?start_date=2026-01-10&end_date=2026-01-01")
+
+    assert response.status_code == 400
+    assert "start_date cannot be after end_date" in response.json()["detail"]
+
+
+def test_get_air_quality_by_city_found(client, mock_db, caplog):
+    caplog.set_level(logging.INFO)
+    
+    mock_record = models.Pollutants(
+        id=1, date=datetime.date(2026, 1, 1), city="Haifa", pm25=10, no2=20, co2=30, aqi=50
+    )
+    mock_db.query.return_value.filter.return_value.all.return_value = [mock_record]
+
+    response = client.get("/air-quality/city?city=Haifa")
+
+    assert response.status_code == 200
+    assert response.json()[0]["city"] == "Haifa"
+
+    # Assert log
+    assert "Querying air quality data for city: Haifa" in caplog.text
+
+
+def test_get_air_quality_by_city_not_found(client, mock_db, caplog):
+    caplog.set_level(logging.INFO)
+    
+    mock_db.query.return_value.filter.return_value.all.return_value = []
+
+    response = client.get("/air-quality/city?city=UnknownCity")
+
+    assert response.status_code == 200
+    assert response.json() == []
+
+    # Assert log
+    assert "Querying air quality data for city: UnknownCity" in caplog.text
+
+
+def test_get_city_aqi_history(client, mock_db, caplog):
+    caplog.set_level(logging.INFO)
+    
+    row1 = MagicMock(date=datetime.date(2026, 1, 2), aqi=60)
+    row2 = MagicMock(date=datetime.date(2026, 1, 1), aqi=50)
+
+    mock_db.query.return_value.filter.return_value.order_by.return_value.all.return_value = [row1, row2]
+
+    response = client.get("/air-quality/history?city=Haifa")
+
+    assert response.status_code == 200
+    data = response.json()
+    assert len(data) == 2
+    assert data[0]["aqi"] == 60
+
+    # Assert log
+    assert "Querying AQI history for city: Haifa" in caplog.text
+
+
+def test_get_city_aqi_average(client, mock_db, caplog):
+    caplog.set_level(logging.INFO)
+    
+    mock_db.query.return_value.filter.return_value.scalar.return_value = 75.456
+
+    response = client.get("/air-quality/average?city=Haifa")
+
+    assert response.status_code == 200
+    data = response.json()
+    assert data["city"] == "Haifa"
+    assert data["average_aqi"] == 75.46
+
+    # Assert log
+    assert "Calculating AQI average for city: Haifa" in caplog.text
+
+
+def test_get_best_cities(client, mock_db, caplog):
+    caplog.set_level(logging.INFO)
+    
+    mock_results = [("Haifa", 45.0), ("Tel Aviv", 85.0)]
+    mock_db.query.return_value.group_by.return_value.order_by.return_value.limit.return_value.all.return_value = mock_results
+
+    response = client.get("/air-quality/best-cities")
+
+    assert response.status_code == 200
+    data = response.json()
+    assert len(data) == 2
+    assert data[0]["city"] == "Haifa"
+    assert data[0]["average_aqi"] == 45.0
+
+    # Assert log
+    assert "Querying best cities by average AQI" in caplog.text
+
+================================================================================
+FILE: tests/test_alerts.py
+================================================================================
+
+import datetime
+import logging
+import models
+
+
+def test_get_all_alerts(client, mock_db, caplog):
+    caplog.set_level(logging.INFO)
+    
+    mock_alert = models.Alerts(
+        id=1, pollutant_id=10, date=datetime.date(2026, 1, 1), city="Haifa", aqi=350
+    )
+    mock_db.query.return_value.all.return_value = [mock_alert]
+
+    response = client.get("/alerts")
+
+    assert response.status_code == 200
+    data = response.json()
+    assert len(data) == 1
+    assert data[0]["aqi"] == 350
+
+    # Assert log
+    assert "Retrieving all alerts" in caplog.text
+
+
+def test_get_alerts_by_date(client, mock_db, caplog):
+    caplog.set_level(logging.INFO)
+    
+    mock_alert = models.Alerts(
+        id=1, pollutant_id=10, date=datetime.date(2026, 1, 1), city="Haifa", aqi=350
+    )
+    mock_db.query.return_value.filter.return_value.all.return_value = [mock_alert]
+
+    response = client.get("/alerts/date?date=2026-01-01")
+
+    assert response.status_code == 200
+    assert response.json()[0]["city"] == "Haifa"
+
+    # Assert log
+    assert "Retrieving alerts for date: 2026-01-01" in caplog.text
+
+
+def test_get_alerts_by_city(client, mock_db, caplog):
+    caplog.set_level(logging.INFO)
+    
+    mock_db.query.return_value.filter.return_value.all.return_value = []
+
+    response = client.get("/alerts/city?city=CleanCity")
+
+    assert response.status_code == 200
+    assert response.json() == []
+
+    # Assert log
+    assert "Retrieving alerts for city: CleanCity" in caplog.text
+
+================================================================================
+FILE: tests/test_upload.py
+================================================================================
+
+import io
+import logging
+
+def test_upload_valid_csv(client, mock_db, caplog):
+    caplog.set_level(logging.INFO)
+    
+    csv_content = (
+        "date,city,pm25,no2,co2\n"
+        "2026-01-01,Haifa,10.0,20.0,30.0\n"
+        "2026-01-02,Tel Aviv,15.0,25.0,35.0\n"
+    )
+    file = ("data.csv", io.BytesIO(csv_content.encode("utf-8")), "text/csv")
+
+    response = client.post("/upload", files={"file": file})
+
+    assert response.status_code == 200
+    data = response.json()
+    assert data["inserted_rows"] == 2
+    assert data["skipped_rows"] == []
+    
+    # Verify mock database interactions
+    assert mock_db.add.call_count == 2
+    assert mock_db.commit.called
+
+    # Assert log statements
+    assert "Processing CSV file upload: data.csv" in caplog.text
+    assert "Upload complete. Inserted: 2, Skipped: 0" in caplog.text
+
+
+def test_upload_high_aqi_adds_alert(client, mock_db, caplog):
+    caplog.set_level(logging.INFO)
+    
+    csv_content = (
+        "date,city,pm25,no2,co2\n"
+        "2026-01-01,Haifa,300.0,700.0,120.0\n"
+    )
+    file = ("data.csv", io.BytesIO(csv_content.encode("utf-8")), "text/csv")
+
+    response = client.post("/upload", files={"file": file})
+
+    assert response.status_code == 200
+    assert mock_db.add.call_count == 2
+
+    # Assert high AQI alert log
+    assert "High AQI alert triggered for Haifa on 2026-01-01" in caplog.text
+
+
+def test_upload_corrupted_rows_skipped(client, mock_db, caplog):
+    caplog.set_level(logging.INFO)
+    
+    csv_content = (
+        "date,city,pm25,no2,co2\n"
+        "2026-01-01,Haifa,10.0,20.0,30.0\n"
+        "invalid-date,Tel Aviv,15.0,25.0,35.0\n"
+    )
+    file = ("data.csv", io.BytesIO(csv_content.encode("utf-8")), "text/csv")
+
+    response = client.post("/upload", files={"file": file})
+
+    assert response.status_code == 200
+    data = response.json()
+    assert data["inserted_rows"] == 1
+    assert data["skipped_rows"] == [3]
+
+    # Assert skipped row warning log
+    assert "Row 3 skipped in file data.csv" in caplog.text
+
+
+def test_upload_non_csv_rejected(client, caplog):
+    caplog.set_level(logging.WARNING)
+    
+    file = ("document.pdf", io.BytesIO(b"dummy pdf content"), "application/pdf")
+
+    response = client.post("/upload", files={"file": file})
+
+    assert response.status_code == 400
+    assert "Please upload a CSV file" in response.json()["detail"]
+
+    # Assert failed attempt log
+    assert "Failed upload attempt with invalid file: document.pdf" in caplog.text
