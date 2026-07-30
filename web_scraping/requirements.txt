@@ -1,3 +1,4 @@
-requests
-bs4
-playwright
+beautifulsoup4==4.15.0
+httpx==0.28.1
+playwright==1.60.0
+requests==2.34.2
