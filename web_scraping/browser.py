@@ -19,9 +19,7 @@ class UrlFromFileProvider(UrlProvider):
         self.filepath = filepath
 
     def get_urls(self) -> list[str]:
-
         with open(self.filepath, "r") as file:
-
             return [url.rstrip() for url in file if url.strip()]
 
 class HTMLParser(Protocol):
@@ -31,11 +29,13 @@ class HTMLParser(Protocol):
 class Bs4HtmlParser(HTMLParser):
     def extract_links(self, html_content: str) -> list[str]:
         soup = bs4.BeautifulSoup(html_content, features='html.parser')
-        return [
+        links_found = [
             elem.attrs.get("href") 
             for elem in soup.select("a") 
             if elem.attrs.get("href")
         ]
+
+        return links_found
 
 class HTMLFetcher(Protocol):
     def fetch(self, url: str) -> str:
@@ -45,6 +45,7 @@ class RequestsFetcher(HTMLFetcher):
     def fetch(self, url: str) -> str:
         response = requests.get(url)
         response.raise_for_status()
+
         return response.text
     
 class MetadataWriter(Protocol):
@@ -89,13 +90,15 @@ class PlaywrightScreenshotService():
             self._playwright.stop()
 
     def encoded_screenshot(self, url: str):
-        result: str = ""
-        
+        result: str = ""        
         page = self._context.new_page()
+
         try:
             page.goto(url)
             screenshot_bytes = page.screenshot()
             result = base64.b64encode(screenshot_bytes).decode()
+        except Exception as e:
+            print("Error generating screenshot: ", e)
         finally:
             page.close()
 
@@ -103,34 +106,30 @@ class PlaywrightScreenshotService():
 
 class MetadataScraperPipeline:
     def __init__(
-            self, 
-            provider: UrlProvider, 
-            parser: HTMLParser, 
-            fetcher: HTMLFetcher, 
+            self,
+            parser: HTMLParser,
+            fetcher: HTMLFetcher,
             screenshoter: ScreenshotService,
             writer: MetadataWriter):
-        self.provider = provider
         self.parser = parser
         self.fetcher = fetcher
         self.screenshoter = screenshoter
         self.writer = writer
 
-    def run(self) -> None:
+    def run(self, url: str, url_number: int) -> None:
+        html = self.fetcher.fetch(url)
+        resources = self.parser.extract_links(html)
+        screenshot = self.screenshoter.encoded_screenshot(url)
 
-        for url_number, url in enumerate(self.provider.get_urls()):
-            html = self.fetcher.fetch(url)
-            resources = self.parser.extract_links(html)
-            screenshot = self.screenshoter.encoded_screenshot(url)
+        metadata: WebsiteMetadata = {
+            "html": html,
+            "resources": resources,
+            "screenshot": screenshot
+        }
 
-            metadata: WebsiteMetadata = {
-                "html": html,
-                "resources": resources,
-                "screenshot": screenshot
-            }
+        self.writer.write(metadata, f'url_{url_number}')
 
-            self.writer.write(metadata, f'url_{url_number}')
-
-def main():
+if __name__ == "__main__":
     provider = UrlFromFileProvider("urls.input")
     parser = Bs4HtmlParser()
     fetcher = RequestsFetcher()
@@ -138,14 +137,11 @@ def main():
 
     with PlaywrightScreenshotService() as screenshotter:
         pipeline = MetadataScraperPipeline(
-            provider=provider,
             parser=parser,
             fetcher=fetcher,
             screenshoter=screenshotter,
             writer=writer
         )
 
-        pipeline.run()
-
-if __name__ == "__main__":
-    main()
+        for url_number, url in enumerate(provider.get_urls(), start=1):
+            pipeline.run(url=url, url_number=url_number)
