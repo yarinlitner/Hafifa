@@ -1,49 +1,135 @@
 import yfinance as yf
 import pandas as pd
-import os
-from dotenv import load_dotenv
+
 from concurrent.futures import ThreadPoolExecutor
+from typing import Protocol
+from dataclasses import dataclass
 
-load_dotenv()
+@dataclass
+class StockData:
+    time: pd.Timestamp
+    ticker: str
+    percentage_change: float 
 
-output_file = "output.csv"
+class StockDataFetcher(Protocol):
+    def fetch_stock_data(self, start_time: pd.Timestamp, ticker: str) -> pd.DataFrame | None:
+        ...
 
-input_params = [("bitcoin_dates.txt", "BTC-USD"), ("amazon_dates.txt", "AMZN"), ("google_date.txt", "GOOG")]
-all_results = []
+class YahooStockDataFetcher:
+    def fetch_stock_data(self, start_time: pd.Timestamp, ticker: str) -> pd.DataFrame | None:
+        try:
+            stock_data = yf.download(
+                    ticker,
+                    start = start_time,
+                    end = start_time + pd.Timedelta(hours=1),
+                    interval="1h",
+                    progress=False,
+                )
 
-def fetch_hour(t, ticker):
-    try:
-        btc = yf.download(
-                ticker,
-                start = t,
-                end = t + pd.Timedelta(hours=1),
-                interval="1h",
-                progress=False,
-            )
-        if btc.empty:
+            return stock_data
+
+        except Exception as e:
+            print(f"Error retrieving stock data: {e}")
+
             return None
-        else:
-            open_price = btc.iloc[0][("Open", ticker)]
-            close_price = btc.iloc[0][("Close", ticker)]
 
-            pct_change = ((close_price - open_price) / open_price) * 100
-
-            return {
-                "hour": t,
-                "stock type": ticker,
-                "percentage change": pct_change,
-            }
-    except Exception as e:
-        print(f"Error processing {t}: {e}")
+def process_stock_data(stock_data: pd.DataFrame | None,
+                       start_time: pd.Timestamp,
+                       ticker: str) -> StockData | None:  
+    if stock_data is None or stock_data.empty:
         return None
- 
-with ThreadPoolExecutor(max_workers=8) as executor:
-    for (file, ticker) in input_params:
-        with open(file) as f:
-            timestamps = [pd.to_datetime(line.strip()).floor("h") for line in f if line.strip()]  
-    
-            results = list(executor.map(fetch_hour, timestamps, [ticker] * len(timestamps)))
-            all_results.extend(r for r in results if r is not None)
 
-    df = pd.DataFrame(all_results)
-    df.to_csv(output_file, index=False)
+    open_price = stock_data.iloc[0][("Open", ticker)]
+    close_price = stock_data.iloc[0][("Close", ticker)]
+
+    percentage_change = ((close_price - open_price) / open_price) * 100
+
+    return StockData(
+        time=start_time,
+        ticker=ticker,
+        percentage_change=percentage_change
+    )
+
+class StockDataWriter(Protocol):
+    def write(self, stock_data_list: list[StockData]) -> None:
+        ...
+
+class CsvStockDataWriter:
+    def __init__(self, output_filepath: str):
+        self.output_filepath = output_filepath
+
+    def write(self, stock_data_list: list[StockData]) -> None:
+        df = pd.DataFrame(stock_data_list)
+        df.to_csv(self.output_filepath, index=False)
+
+class StockDataReader(Protocol):
+    ticker: str
+
+    def read_timestamps(self) -> list[pd.Timestamp]:
+        ...
+
+class FileStockDataReader:
+    def __init__(self, file_path: str, ticker: str):
+        self.file_path = file_path
+        self.ticker = ticker
+
+    def read_timestamps(self) -> list[pd.Timestamp]:
+        with open(self.file_path) as file:
+            return [pd.to_datetime(line.strip()).floor("h") 
+                    for line in file if line.strip()]
+
+class Pipeline:
+    def __init__(self, 
+                 stock_data_writer: StockDataWriter,
+                 stock_data_fetcher: StockDataFetcher,
+                 stock_data_readers: list[StockDataReader]
+                 ) -> None:
+        self.stock_data_writer = stock_data_writer
+        self.stock_data_fetcher = stock_data_fetcher
+        self.stock_data_readers = stock_data_readers
+
+    def run(self, workers: int = 8) -> None:
+        all_results = []
+
+        with ThreadPoolExecutor(max_workers=workers) as executor:
+            for reader in self.stock_data_readers:
+                timestamps = reader.read_timestamps()
+
+                raw_stock_data = executor.map(
+                    self.stock_data_fetcher.fetch_stock_data,
+                    timestamps,
+                    [reader.ticker] * len(timestamps),
+                )
+
+                processed_stock_data = executor.map(
+                    process_stock_data,
+                    raw_stock_data,
+                    timestamps,
+                    [reader.ticker] * len(timestamps),
+                )
+
+                all_results.extend(
+                    result
+                    for result in processed_stock_data
+                    if result is not None
+                )
+
+        self.stock_data_writer.write(all_results)
+
+if __name__ == "__main__":
+     input_params = [("bitcoin_dates.txt", "BTC-USD"),
+                     ("amazon_dates.txt", "AMZN"),
+                     ("google_date.txt", "GOOG")]
+
+     stock_data_writer = CsvStockDataWriter("output.csv")
+     stock_data_fetcher = YahooStockDataFetcher()
+     stock_data_readers = [FileStockDataReader(file_path=param[0], 
+                                             ticker=param[1]) 
+                         for param in input_params]
+
+     pipeline = Pipeline(stock_data_writer=stock_data_writer,
+                         stock_data_fetcher=stock_data_fetcher,
+                         stock_data_readers=stock_data_readers)
+     pipeline.run()
+
+ 
