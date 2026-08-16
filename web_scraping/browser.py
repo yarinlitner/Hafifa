@@ -79,6 +79,7 @@ class PlaywrightScreenshotService():
         self._browser = self._playwright.chromium.launch()
         self._context = self._browser.new_context()
         self._context.set_default_timeout(self.timeout_ms)
+
         return self
 
     def __exit__(self, exc_type, exc_val, exc_tb):
@@ -96,13 +97,12 @@ class PlaywrightScreenshotService():
         try:
             page.goto(url)
             screenshot_bytes = page.screenshot()
-            result = base64.b64encode(screenshot_bytes).decode()
+            return base64.b64encode(screenshot_bytes).decode()
         except Exception as e:
             print("Error generating screenshot: ", e)
+            return ""
         finally:
             page.close()
-
-        return result
 
 class MetadataScraperPipeline:
     def __init__(
