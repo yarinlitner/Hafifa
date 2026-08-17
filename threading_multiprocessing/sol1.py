@@ -50,6 +50,13 @@ def process_stock_data(stock_data: pd.DataFrame | None,
         percentage_change=percentage_change
     )
 
+def fetch_and_process(fetcher: StockDataFetcher, 
+                      start_time: pd.Timestamp,
+                      ticker: str) -> StockData | None:
+    raw_stock_data = fetcher.fetch_stock_data(start_time, ticker)
+
+    return process_stock_data(raw_stock_data, start_time, ticker)
+
 class StockDataWriter(Protocol):
     def write(self, stock_data_list: list[StockData]) -> None:
         ...
@@ -95,23 +102,19 @@ class Pipeline:
             for reader in self.stock_data_readers:
                 timestamps = reader.read_timestamps()
 
-                raw_stock_data = executor.map(
-                    self.stock_data_fetcher.fetch_stock_data,
-                    timestamps,
-                    [reader.ticker] * len(timestamps),
-                )
-
                 processed_stock_data = executor.map(
-                    process_stock_data,
-                    raw_stock_data,
-                    timestamps,
-                    [reader.ticker] * len(timestamps),
+                    lambda timestamp: fetch_and_process(
+                        fetcher=self.stock_data_fetcher,
+                        start_time=timestamp,
+                        ticker=reader.ticker
+                    ),
+                    timestamps
                 )
 
                 all_results.extend(
-                    result
-                    for result in processed_stock_data
-                    if result is not None
+                    stock_data
+                    for stock_data in processed_stock_data
+                    if stock_data is not None
                 )
 
         self.stock_data_writer.write(all_results)
