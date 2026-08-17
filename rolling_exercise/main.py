@@ -9,7 +9,6 @@ models.Base.metadata.create_all(bind=engine)
 
 app = FastAPI(title="Air Quality Index API")
 
-# Register routers
 app.include_router(upload.router)
 app.include_router(air_quality.router)
 app.include_router(alerts.router)

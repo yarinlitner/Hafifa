@@ -3,7 +3,6 @@ import logging
 from unittest.mock import MagicMock
 import models
 
-
 def test_get_air_quality_date_range(client, mock_db, caplog):
     caplog.set_level(logging.INFO)
     
@@ -22,13 +21,11 @@ def test_get_air_quality_date_range(client, mock_db, caplog):
     # Assert log
     assert "Querying air quality from 2026-01-01 to 2026-01-02" in caplog.text
 
-
 def test_get_air_quality_invalid_dates(client):
     response = client.get("/air-quality/date?start_date=2026-01-10&end_date=2026-01-01")
 
     assert response.status_code == 400
     assert "start_date cannot be after end_date" in response.json()["detail"]
-
 
 def test_get_air_quality_by_city_found(client, mock_db, caplog):
     caplog.set_level(logging.INFO)
@@ -46,7 +43,6 @@ def test_get_air_quality_by_city_found(client, mock_db, caplog):
     # Assert log
     assert "Querying air quality data for city: Haifa" in caplog.text
 
-
 def test_get_air_quality_by_city_not_found(client, mock_db, caplog):
     caplog.set_level(logging.INFO)
     
@@ -59,7 +55,6 @@ def test_get_air_quality_by_city_not_found(client, mock_db, caplog):
 
     # Assert log
     assert "Querying air quality data for city: UnknownCity" in caplog.text
-
 
 def test_get_city_aqi_history(client, mock_db, caplog):
     caplog.set_level(logging.INFO)
@@ -79,7 +74,6 @@ def test_get_city_aqi_history(client, mock_db, caplog):
     # Assert log
     assert "Querying AQI history for city: Haifa" in caplog.text
 
-
 def test_get_city_aqi_average(client, mock_db, caplog):
     caplog.set_level(logging.INFO)
     
@@ -94,7 +88,6 @@ def test_get_city_aqi_average(client, mock_db, caplog):
 
     # Assert log
     assert "Calculating AQI average for city: Haifa" in caplog.text
-
 
 def test_get_best_cities(client, mock_db, caplog):
     caplog.set_level(logging.INFO)

@@ -2,7 +2,6 @@ import datetime
 import logging
 import models
 
-
 def test_get_all_alerts(client, mock_db, caplog):
     caplog.set_level(logging.INFO)
     
@@ -21,7 +20,6 @@ def test_get_all_alerts(client, mock_db, caplog):
     # Assert log
     assert "Retrieving all alerts" in caplog.text
 
-
 def test_get_alerts_by_date(client, mock_db, caplog):
     caplog.set_level(logging.INFO)
     
@@ -37,7 +35,6 @@ def test_get_alerts_by_date(client, mock_db, caplog):
 
     # Assert log
     assert "Retrieving alerts for date: 2026-01-01" in caplog.text
-
 
 def test_get_alerts_by_city(client, mock_db, caplog):
     caplog.set_level(logging.INFO)

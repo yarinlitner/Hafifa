@@ -26,7 +26,6 @@ def test_upload_valid_csv(client, mock_db, caplog):
     assert "Processing CSV file upload: data.csv" in caplog.text
     assert "Upload complete. Inserted: 2, Skipped: 0" in caplog.text
 
-
 def test_upload_high_aqi_adds_alert(client, mock_db, caplog):
     caplog.set_level(logging.INFO)
     
@@ -43,7 +42,6 @@ def test_upload_high_aqi_adds_alert(client, mock_db, caplog):
 
     # Assert high AQI alert log
     assert "High AQI alert triggered for Haifa on 2026-01-01" in caplog.text
-
 
 def test_upload_corrupted_rows_skipped(client, mock_db, caplog):
     caplog.set_level(logging.INFO)
@@ -64,7 +62,6 @@ def test_upload_corrupted_rows_skipped(client, mock_db, caplog):
 
     # Assert skipped row warning log
     assert "Row 3 skipped in file data.csv" in caplog.text
-
 
 def test_upload_non_csv_rejected(client, caplog):
     caplog.set_level(logging.WARNING)
