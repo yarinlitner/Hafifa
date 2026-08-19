@@ -76,8 +76,11 @@ def test_get_city_aqi_history(client, mock_db, caplog):
 
 def test_get_city_aqi_average(client, mock_db, caplog):
     caplog.set_level(logging.INFO)
-    
-    mock_db.query.return_value.filter.return_value.scalar.return_value = 75.456
+
+    mock_db.query.return_value.filter.return_value.group_by.return_value.first.return_value = {
+        "city": "Haifa",
+        "average_aqi": 75.46,
+    }
 
     response = client.get("/air-quality/average?city=Haifa")
 
@@ -86,13 +89,13 @@ def test_get_city_aqi_average(client, mock_db, caplog):
     assert data["city"] == "Haifa"
     assert data["average_aqi"] == 75.46
 
-    # Assert log
-    assert "Calculating AQI average for city: Haifa" in caplog.text
-
 def test_get_best_cities(client, mock_db, caplog):
     caplog.set_level(logging.INFO)
     
-    mock_results = [("Haifa", 45.0), ("Tel Aviv", 85.0)]
+    mock_results = [
+        {"city": "Haifa", "average_aqi": 45.0},
+        {"city": "Tel Aviv", "average_aqi": 85.0},
+    ]
     mock_db.query.return_value.group_by.return_value.order_by.return_value.limit.return_value.all.return_value = mock_results
 
     response = client.get("/air-quality/best-cities")

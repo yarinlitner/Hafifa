@@ -1,4 +1,4 @@
-from sqlalchemy import Column, ForeignKey, Integer, String, Date
+from sqlalchemy import Column, ForeignKey, Integer, String, Date, Float
 from database import Base
 
 class Pollutants(Base):
@@ -7,10 +7,10 @@ class Pollutants(Base):
     id = Column(Integer, primary_key=True, index=True)
     date = Column(Date)
     city = Column(String)
-    pm25 = Column(Integer)
-    no2 = Column(Integer)
-    co2 = Column(Integer)
-    aqi = Column(Integer)
+    pm25 = Column(Float)
+    no2 = Column(Float)
+    co2 = Column(Float)
+    aqi = Column(Float)
 
 class Alerts(Base):
     __tablename__ = 'alerts'
@@ -19,4 +19,4 @@ class Alerts(Base):
     pollutant_id = Column(Integer, ForeignKey("pollutants.id"))
     date = Column(Date)
     city = Column(String)
-    aqi = Column(Integer)
+    aqi = Column(Float)
